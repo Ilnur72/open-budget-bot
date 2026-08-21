@@ -1,0 +1,86 @@
+// Prisma 7: ulanish manzili prisma.config.ts da, runtime'da @prisma/adapter-pg orqali.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id         Int      @id @default(autoincrement())
+  telegramId BigInt   @unique @map("telegram_id")
+  firstName  String?  @map("first_name")
+  lastName   String?  @map("last_name")
+  username   String?
+  phone      String? // oxirgi ishlatilgan raqam
+  isAdmin    Boolean  @default(false) @map("is_admin")
+  isBlocked  Boolean  @default(false) @map("is_blocked")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  votes    Vote[]
+  voteLogs VoteLog[]
+
+  @@index([createdAt])
+  @@map("users")
+}
+
+model Vote {
+  id             Int        @id @default(autoincrement())
+  userId         Int        @map("user_id")
+  phone          String // ovoz berilgan raqam
+  initiativeUuid String     @map("initiative_uuid")
+  districtId     Int        @map("district_id")
+  status         VoteStatus @default(PENDING)
+  errorMessage   String?    @map("error_message")
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  // Ovoz — biznes yozuvi, foydalanuvchi bilan birga o'chib ketmasligi kerak
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt]) // getByUser: filtr + saralash bitta indeksda
+  @@index([createdAt, status]) // getTodayStats: index-only scan
+  @@index([status]) // getStats: index-only scan
+  @@map("votes")
+}
+
+model VoteLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  action    String // CAPTCHA_REQUESTED, CODE_SENT, CODE_VERIFIED, VOTE_SUCCESS, VOTE_FAILED
+  details   Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  // Audit izi — foydalanuvchi o'chirilsa u ham keraksiz
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([action])
+  @@map("vote_logs")
+}
+
+/// Admin amallarining audit izi.
+/// `users` ga FK YO'Q: admin `ADMIN_IDS` da bo'lsa yetarli (uning `users`
+/// yozuvi bo'lmasligi mumkin), audit izi esa foydalanuvchi o'chirilsa ham qolishi kerak.
+model AdminLog {
+  id        Int      @id @default(autoincrement())
+  adminId   BigInt   @map("admin_id")
+  action    String
+  details   Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([adminId, createdAt])
+  @@index([action])
+  @@map("admin_logs")
+}
+
+enum VoteStatus {
+  PENDING
+  CAPTCHA_SENT
+  CODE_SENT
+  VERIFIED
+  SUCCESS
+  FAILED
+}

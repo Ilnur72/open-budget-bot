@@ -1,0 +1,156 @@
+# Bot bitta nusxada ishlaydi.
+# Sabab: long-polling'da Telegram ikkinchi nusxaga 409 beradi, webhook rejimida
+# esa broadcast qulfi process ichida — bir nechta nusxa bo'lsa foydalanuvchilar
+# xabarni bir necha marta olardi. Miqyoslash kerak bo'lsa avval taqsimlangan
+# qulf (Redis) qo'shilishi shart.
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
+# Ilova O'QIYDIGAN env'lar ro'yxati.
+# `env_file` o'rniga aniq ro'yxat: u butun faylni (jumladan DB_PASSWORD va
+# REDIS_PASSWORD ni) konteynerga uzatardi, holbuki ilovaga faqat tayyor
+# URL'lar kerak. RCE yoki `/proc/self/environ` sizishida ortiqcha sir bermaymiz.
+x-app-env: &app-env
+  NODE_ENV: ${NODE_ENV:-production}
+  PORT: ${PORT:-3000}
+  APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Tashkent}
+  BOT_TOKEN: ${BOT_TOKEN:?BOT_TOKEN majburiy}
+  BOT_MODE: ${BOT_MODE:-webhook}
+  WEBHOOK_URL: ${WEBHOOK_URL:-}
+  WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
+  ADMIN_IDS: ${ADMIN_IDS:-}
+  DATABASE_URL: ${DATABASE_URL:?DATABASE_URL majburiy}
+  REDIS_URL: ${REDIS_URL:?REDIS_URL majburiy}
+  OPENBUDGET_BASE_URL: ${OPENBUDGET_BASE_URL:-https://new.openbudget.uz}
+  INITIATIVE_URL: ${INITIATIVE_URL:?INITIATIVE_URL majburiy}
+  DISTRICT_ID: ${DISTRICT_ID:?DISTRICT_ID majburiy}
+  INITIATIVE_UUID: ${INITIATIVE_UUID:?INITIATIVE_UUID majburiy}
+  OPENBUDGET_ENDPOINTS_VERIFIED: ${OPENBUDGET_ENDPOINTS_VERIFIED:-false}
+  WEBAPP_URL: ${WEBAPP_URL:?WEBAPP_URL majburiy}
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  # Migratsiyalar ALOHIDA servis, bot CMD'ida emas.
+  # Sabab: CMD'da bo'lganda migratsiya yiqilsa konteyner cheksiz qayta urinar,
+  # Prisma esa migratsiyani "failed" deb belgilab, keyingi har bir startni
+  # P3009 bilan to'sib qo'yardi. `restart: no` bilan sikl bo'lmaydi.
+  migrate:
+    build: .
+    image: openbudget-bot:${IMAGE_TAG:-latest}
+    container_name: openbudget-migrate
+    command: ['node_modules/.bin/prisma', 'migrate', 'deploy']
+    environment: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+    logging: *default-logging
+    <<: *hardening
+    networks:
+      - bot-network
+
+  bot:
+    build: .
+    image: openbudget-bot:${IMAGE_TAG:-latest}
+    container_name: openbudget-bot
+    restart: unless-stopped
+    environment: *app-env
+    # Faqat localhost — tashqi dunyoga nginx chiqaradi.
+    ports:
+      - '127.0.0.1:3000:3000'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Broadcast joriy sahifani tugatishi uchun vaqt kerak (500 xabar × 50ms).
+    stop_grace_period: 120s
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    logging: *default-logging
+    <<: *hardening
+    networks:
+      - bot-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: openbudget-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: openbudget_bot
+      POSTGRES_USER: bot_user
+      # Default qiymat BERILMAYDI — DB_PASSWORD yo'q bo'lsa compose yiqilsin.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD .env.production da majburiy}
+      # Xom SQL insert'lar UTC'da yozilsin (timestamptz bilan birga ikki qavat himoya).
+      TZ: UTC
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # ports: TASHQARIGA CHIQARILMAYDI — bot bilan bir tarmoqda.
+    # Debug uchun kerak bo'lsa: '127.0.0.1:5432:5432' (0.0.0.0 emas).
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U bot_user -d openbudget_bot']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    mem_limit: 1g
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - bot-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: openbudget-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD .env.production da majburiy}
+    # Parol `sh -c` ichida o'qiladi, argv ga TUSHMAYDI.
+    # Aks holda u `docker inspect` va host'dagi `ps aux` da ochiq ko'rinardi —
+    # Redis'da esa gr_token va telefon raqamlar yotadi.
+    #
+    # allkeys-lru EMAS: u xotira bosimida rate-limit kalitlarini o'chirib,
+    # kunlik ovoz cheklovini jimgina bekor qilardi.
+    command:
+      - sh
+      - -c
+      - >
+        exec redis-server
+        --requirepass "$$REDIS_PASSWORD"
+        --maxmemory 256mb
+        --maxmemory-policy noeviction
+        --appendonly yes
+    volumes:
+      - redisdata:/data
+    # ports: TASHQARIGA CHIQARILMAYDI
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    mem_limit: 320m
+    logging: *default-logging
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - bot-network
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  bot-network:
+    driver: bridge
