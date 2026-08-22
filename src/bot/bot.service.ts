@@ -5,42 +5,41 @@ import { Bot, BotError, GrammyError, HttpError } from 'grammy';
 import type { Update } from 'grammy/types';
 import type { BotMode } from '../config/configuration';
 import { toErrorInfo } from '../common/utils/error.util';
-import { BotThrottle } from './bot.throttle';
-import { AdminUpdate } from './admin/admin.update';
 import { BotUpdate } from './bot.update';
 import type { BotContext } from './bot.types';
 
-/** Telegram API 429/5xx qaytarganda qayta urinish sozlamalari. */
 const AUTO_RETRY_MAX_ATTEMPTS = 3;
 const AUTO_RETRY_MAX_DELAY_SECONDS = 10;
-
-/** To'xtatishda ishlab turgan handler'larni kutish chegarasi. */
-const SHUTDOWN_DRAIN_TIMEOUT_MS = 10_000;
 
 @Injectable()
 export class BotService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BotService.name);
   private readonly bot: Bot<BotContext>;
 
-  /** Hozir ishlanayotgan update'lar soni — toza to'xtatish uchun. */
-  private pendingUpdates = 0;
-  private drained: Promise<void> = Promise.resolve();
-  private resolveDrained: () => void = () => {};
-
   constructor(
     private readonly configService: ConfigService,
     private readonly botUpdate: BotUpdate,
-    private readonly adminUpdate: AdminUpdate,
-    private readonly throttle: BotThrottle,
   ) {
     this.bot = new Bot<BotContext>(this.configService.getOrThrow<string>('bot.token'));
   }
 
   async onModuleInit(): Promise<void> {
-    this.registerMiddlewares();
+    this.bot.api.config.use(
+      autoRetry({
+        maxRetryAttempts: AUTO_RETRY_MAX_ATTEMPTS,
+        maxDelaySeconds: AUTO_RETRY_MAX_DELAY_SECONDS,
+      }),
+    );
+
+    // Faqat shaxsiy chatda ishlaydi.
+    this.bot.use(async (ctx, next) => {
+      if (ctx.chat !== undefined && ctx.chat.type !== 'private') {
+        return;
+      }
+      await next();
+    });
+
     this.botUpdate.register(this.bot);
-    this.adminUpdate.register(this.bot);
-    this.botUpdate.registerFallback(this.bot);
     this.registerErrorHandler();
 
     await this.bot.init();
@@ -96,61 +95,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     await this.bot.stop();
-
-    let drainTimer: NodeJS.Timeout | undefined;
-    try {
-      await Promise.race([
-        this.drained,
-        new Promise<void>((resolve) => {
-          drainTimer = setTimeout(resolve, SHUTDOWN_DRAIN_TIMEOUT_MS);
-        }),
-      ]);
-    } finally {
-      clearTimeout(drainTimer);
-    }
-
     this.logger.log("Bot to'xtatildi");
-  }
-
-  private registerMiddlewares(): void {
-    this.bot.api.config.use(
-      autoRetry({
-        maxRetryAttempts: AUTO_RETRY_MAX_ATTEMPTS,
-        maxDelaySeconds: AUTO_RETRY_MAX_DELAY_SECONDS,
-      }),
-    );
-
-    this.bot.use(async (_ctx, next) => {
-      if (this.pendingUpdates++ === 0) {
-        this.drained = new Promise<void>((resolve) => {
-          this.resolveDrained = resolve;
-        });
-      }
-      try {
-        await next();
-      } finally {
-        if (--this.pendingUpdates === 0) {
-          this.resolveDrained();
-        }
-      }
-    });
-
-    // Faqat shaxsiy chatda ishlaydi.
-    this.bot.use(async (ctx, next) => {
-      if (ctx.chat !== undefined && ctx.chat.type !== 'private') {
-        return;
-      }
-      await next();
-    });
-
-    // Flood himoyasi.
-    this.bot.use(async (ctx, next) => {
-      const telegramId = ctx.from?.id;
-      if (telegramId !== undefined && (await this.throttle.isFlooding(telegramId))) {
-        return;
-      }
-      await next();
-    });
   }
 
   private registerErrorHandler(): void {

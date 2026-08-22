@@ -1,7 +1,6 @@
 export interface AppConfig {
   port: number;
   nodeEnv: string;
-  timeZone: string;
 }
 
 export type BotMode = 'polling' | 'webhook';
@@ -11,7 +10,6 @@ export interface BotConfig {
   mode: BotMode;
   webhookUrl?: string;
   webhookSecret?: string;
-  adminIds: number[];
 }
 
 export interface OpenBudgetConfig {
@@ -19,20 +17,10 @@ export interface OpenBudgetConfig {
   initiativePublicId: string;
 }
 
-export interface RedisConfig {
-  url: string;
-}
-
-export interface DatabaseConfig {
-  url: string;
-}
-
 export interface Configuration {
   app: AppConfig;
   bot: BotConfig;
   openbudget: OpenBudgetConfig;
-  redis: RedisConfig;
-  database: DatabaseConfig;
 }
 
 function requireEnv(key: string): string {
@@ -61,32 +49,6 @@ function optionalNumberEnv(key: string, fallback: number): number {
   return value;
 }
 
-function requireTimeZone(key: string, fallback: string): string {
-  const value = optionalEnv(key, fallback);
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: value });
-  } catch {
-    throw new Error(
-      `Environment variable "${key}" haqiqiy IANA vaqt mintaqasi bo'lishi kerak (masalan: Asia/Tashkent)`,
-    );
-  }
-  return value;
-}
-
-function requireHttpsUrl(key: string): string {
-  const value = requireEnv(key);
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error(`Environment variable "${key}" haqiqiy URL bo'lishi kerak`);
-  }
-  if (parsed.protocol !== 'https:') {
-    throw new Error(`Environment variable "${key}" https:// bilan boshlanishi kerak`);
-  }
-  return value;
-}
-
 function requireBotMode(): BotMode {
   const value = optionalEnv('BOT_MODE', 'polling');
   if (value !== 'polling' && value !== 'webhook') {
@@ -107,11 +69,18 @@ function requireWebhookSecret(): string {
   return value;
 }
 
-function parseIdList(raw: string): number[] {
-  return raw
-    .split(',')
-    .map((part) => Number.parseInt(part.trim(), 10))
-    .filter((id) => Number.isSafeInteger(id) && id > 0);
+function requireHttpsUrl(key: string): string {
+  const value = requireEnv(key);
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`Environment variable "${key}" haqiqiy URL bo'lishi kerak`);
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`Environment variable "${key}" https:// bilan boshlanishi kerak`);
+  }
+  return value;
 }
 
 export default (): Configuration => {
@@ -121,7 +90,6 @@ export default (): Configuration => {
     app: {
       port: optionalNumberEnv('PORT', 3000),
       nodeEnv: optionalEnv('NODE_ENV', 'development'),
-      timeZone: requireTimeZone('APP_TIMEZONE', 'Asia/Tashkent'),
     },
     bot: {
       token: requireEnv('BOT_TOKEN'),
@@ -129,17 +97,10 @@ export default (): Configuration => {
       ...(botMode === 'webhook'
         ? { webhookUrl: requireHttpsUrl('WEBHOOK_URL'), webhookSecret: requireWebhookSecret() }
         : {}),
-      adminIds: parseIdList(optionalEnv('ADMIN_IDS', '')),
     },
     openbudget: {
       officialBot: optionalEnv('OPENBUDGET_BOT', 'ochiqbudjetbot'),
       initiativePublicId: requireEnv('INITIATIVE_PUBLIC_ID'),
-    },
-    redis: {
-      url: requireEnv('REDIS_URL'),
-    },
-    database: {
-      url: requireEnv('DATABASE_URL'),
     },
   };
 };
