@@ -11,15 +11,11 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\" prisma.config.ts --fix",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix",
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio",
-    "postinstall": "prisma generate",
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand"
   },
   "jest": {
