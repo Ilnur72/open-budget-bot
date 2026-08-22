@@ -1,15 +1,10 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { autoRetry } from '@grammyjs/auto-retry';
-import { Bot, BotError, GrammyError, HttpError } from 'grammy';
-import type { Update } from 'grammy/types';
-import type { BotMode } from '../config/configuration';
+import { Bot, GrammyError, HttpError } from 'grammy';
 import { toErrorInfo } from '../common/utils/error.util';
 import { BotUpdate } from './bot.update';
 import type { BotContext } from './bot.types';
-
-const AUTO_RETRY_MAX_ATTEMPTS = 3;
-const AUTO_RETRY_MAX_DELAY_SECONDS = 10;
 
 @Injectable()
 export class BotService implements OnModuleInit, OnModuleDestroy {
@@ -25,13 +20,9 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleInit(): Promise<void> {
     this.bot.api.config.use(
-      autoRetry({
-        maxRetryAttempts: AUTO_RETRY_MAX_ATTEMPTS,
-        maxDelaySeconds: AUTO_RETRY_MAX_DELAY_SECONDS,
-      }),
+      autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 10 }),
     );
 
-    // Faqat shaxsiy chatda ishlaydi.
     this.bot.use(async (ctx, next) => {
       if (ctx.chat !== undefined && ctx.chat.type !== 'private') {
         return;
@@ -42,30 +33,6 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
     this.botUpdate.register(this.bot);
     this.registerErrorHandler();
 
-    await this.bot.init();
-
-    if (this.configService.getOrThrow<BotMode>('bot.mode') === 'webhook') {
-      await this.startWebhook();
-      return;
-    }
-
-    await this.startPolling();
-  }
-
-  private async startWebhook(): Promise<void> {
-    const url = this.configService.getOrThrow<string>('bot.webhookUrl');
-    const secret = this.configService.getOrThrow<string>('bot.webhookSecret');
-
-    await this.bot.api.setWebhook(url, {
-      secret_token: secret,
-      drop_pending_updates: false,
-      allowed_updates: ['message', 'callback_query'],
-    });
-
-    this.logger.log(`Webhook o'rnatildi: @${this.bot.botInfo.username}`);
-  }
-
-  private async startPolling(): Promise<void> {
     await this.bot.api.deleteWebhook().catch(() => undefined);
 
     void this.bot
@@ -74,23 +41,10 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
       })
       .catch((error: unknown) => {
         const { message, stack } = toErrorInfo(error);
-        this.logger.error(`Bot long-polling to'xtadi: ${message}`, stack);
+        this.logger.error(`Bot to'xtadi: ${message}`, stack);
         process.exitCode = 1;
         process.kill(process.pid, 'SIGTERM');
       });
-  }
-
-  async handleUpdate(update: Update): Promise<void> {
-    try {
-      await this.bot.handleUpdate(update);
-    } catch (error) {
-      if (error instanceof BotError) {
-        await this.bot.errorHandler(error as BotError<BotContext>);
-        return;
-      }
-      const { message, stack } = toErrorInfo(error);
-      this.logger.error(`Webhook update ishlanmadi: ${message}`, stack);
-    }
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -112,10 +66,7 @@ export class BotService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`Telegram bilan aloqa uzildi: ${cause.message} [userId=${userId}]`);
       } else {
         const { message, stack } = toErrorInfo(cause);
-        this.logger.error(
-          `Bot xatolik: ${message} [userId=${userId}, updateId=${ctx.update.update_id}]`,
-          stack,
-        );
+        this.logger.error(`Bot xatolik: ${message} [userId=${userId}]`, stack);
       }
 
       void ctx
