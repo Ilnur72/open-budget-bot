@@ -1,14 +1,9 @@
 import configuration from './configuration';
 
-/** Testlar uchun to'liq env to'plami — har bir test shundan boshlanadi. */
 const VALID_ENV: NodeJS.ProcessEnv = {
   BOT_TOKEN: 'test-token',
-  WEBAPP_URL: 'https://example.com/webapp/captcha.html',
   DATABASE_URL: 'postgresql://user:pass@localhost:5432/test',
   REDIS_URL: 'redis://localhost:6379',
-  DISTRICT_ID: '55',
-  INITIATIVE_UUID: '2f9c2e42-2e3c-46cb-a5af-bc7976cc0dec',
-  INITIATIVE_URL: 'https://new.openbudget.uz/uz/initiative-budget',
   INITIATIVE_PUBLIC_ID: '055501602005',
 };
 
@@ -41,6 +36,5 @@ describe('configuration', () => {
     const config = configuration();
     expect(config.app.port).toBe(3000);
     expect(config.app.nodeEnv).toBe('development');
-    expect(config.openbudget.baseUrl).toBe('https://new.openbudget.uz');
   });
 });

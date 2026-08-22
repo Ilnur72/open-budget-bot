@@ -7,10 +7,7 @@ import { RedisModule } from './common/redis/redis.module';
 import { ThrottleModule } from './common/throttle/throttle.module';
 import configuration from './config/configuration';
 import { HealthModule } from './health/health.module';
-import { OpenBudgetModule } from './openbudget/openbudget.module';
 import { UserModule } from './user/user.module';
-import { VoteModule } from './vote/vote.module';
-import { WebappModule } from './webapp/webapp.module';
 
 @Module({
   imports: [
@@ -22,12 +19,9 @@ import { WebappModule } from './webapp/webapp.module';
     PrismaModule,
     RedisModule,
     ThrottleModule,
-    OpenBudgetModule,
     UserModule,
-    VoteModule,
     AdminModule,
     BotModule,
-    WebappModule,
     HealthModule,
   ],
 })

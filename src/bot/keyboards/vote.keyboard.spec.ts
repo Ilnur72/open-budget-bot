@@ -13,17 +13,10 @@ describe('buildOfficialBotUrl', () => {
 });
 
 describe('buildMainKeyboard', () => {
-  it("birinchi tugma — captchasiz rasmiy yo'l", () => {
-    const markup = buildMainKeyboard('https://t.me/x?start=1').inline_keyboard;
+  const markup = () => buildMainKeyboard('https://t.me/x?start=1').inline_keyboard;
 
-    // Eng oson yo'l birinchi bo'lishi kerak — ko'pchilik shuni bosadi.
-    expect(markup[0][0]).toMatchObject({ url: 'https://t.me/x?start=1' });
-    expect(markup[0][0].text).toContain('captchasiz');
-  });
-
-  it('ikkinchi tugma — SMS oqimi', () => {
-    const markup = buildMainKeyboard('https://t.me/x?start=1').inline_keyboard;
-
-    expect(markup[1][0]).toMatchObject({ callback_data: 'vote:start' });
+  it('bitta tugma — rasmiy botga havola', () => {
+    expect(markup()).toHaveLength(1);
+    expect(markup()[0][0]).toMatchObject({ url: 'https://t.me/x?start=1' });
   });
 });
