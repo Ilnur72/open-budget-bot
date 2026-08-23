@@ -5,6 +5,8 @@ export interface AppConfig {
 
 export interface BotConfig {
   token: string;
+  webhookUrl?: string;
+  webhookSecret?: string;
 }
 
 export interface OpenBudgetConfig {
@@ -51,6 +53,8 @@ export default (): Configuration => ({
   },
   bot: {
     token: requireEnv('BOT_TOKEN'),
+    webhookUrl: process.env['WEBHOOK_URL']?.trim() || undefined,
+    webhookSecret: process.env['WEBHOOK_SECRET']?.trim() || undefined,
   },
   openbudget: {
     officialBot: optionalEnv('OPENBUDGET_BOT', 'ochiqbudjetbot'),
